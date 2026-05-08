@@ -50,40 +50,29 @@ func (hc *HealthChecker) loop() {
 }
 
 func (hc *HealthChecker) CheckAll() {
-	nodes := hc.pool.Nodes()
+	hc.pool.mu.RLock()
+	nodes := make([]*nodeState, len(hc.pool.nodes))
+	copy(nodes, hc.pool.nodes)
+	hc.pool.mu.RUnlock()
+
 	var wg sync.WaitGroup
-	for _, node := range nodes {
+	for _, ns := range nodes {
 		wg.Add(1)
-		go func(name string) {
+		go func(ns *nodeState) {
 			defer wg.Done()
-			if hc.checkByName(name) {
+			name := ns.proxy.Name()
+			if CheckProxy(ns.proxy, hc.url, hc.timeout) {
 				hc.pool.MarkAlive(name)
 			} else {
 				hc.pool.MarkFailed(name)
 			}
-		}(node.Name)
+		}(ns)
 	}
 	wg.Wait()
 }
 
-func (hc *HealthChecker) checkByName(name string) bool {
-	hc.pool.mu.RLock()
-	var proxy C.Proxy
-	for _, ns := range hc.pool.nodes {
-		if ns.proxy.Name() == name {
-			proxy = ns.proxy
-			break
-		}
-	}
-	hc.pool.mu.RUnlock()
-
-	if proxy == nil {
-		return false
-	}
-	return CheckProxy(proxy, hc.url, hc.timeout)
-}
-
-// CheckProxy tests if a single proxy can reach the given URL.
+// CheckProxy tests if a proxy can reach the given URL.
+// Uses a lightweight TCP dial + HTTP HEAD to minimize overhead.
 func CheckProxy(proxy C.Proxy, url string, timeout time.Duration) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()

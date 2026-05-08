@@ -128,3 +128,73 @@ func TestPoolEmpty(t *testing.T) {
 		t.Fatalf("expected ErrNoAliveProxy on empty pool, got %v", err)
 	}
 }
+
+func TestPoolP2C(t *testing.T) {
+	p := New(3)
+	proxies := makeFakeProxies(5)
+	p.Update(proxies)
+
+	// set different latencies
+	p.UpdateLatency("node-0", 100000)  // 100ms
+	p.UpdateLatency("node-1", 500000)  // 500ms
+	p.UpdateLatency("node-2", 50000)   // 50ms
+
+	// P2C should work
+	proxy, err := p.P2C()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proxy == nil {
+		t.Fatal("expected non-nil proxy")
+	}
+}
+
+func TestPoolP2CEmpty(t *testing.T) {
+	p := New(3)
+	_, err := p.P2C()
+	if err != ErrNoAliveProxy {
+		t.Fatalf("expected ErrNoAliveProxy, got %v", err)
+	}
+}
+
+func TestPoolUpdateLatency(t *testing.T) {
+	p := New(3)
+	proxies := makeFakeProxies(2)
+	p.Update(proxies)
+
+	p.UpdateLatency("node-0", 100000)
+	nodes := p.Nodes()
+	if nodes[0].LatencyUs != 100000 {
+		t.Errorf("expected 100000, got %d", nodes[0].LatencyUs)
+	}
+
+	// EWMA update
+	p.UpdateLatency("node-0", 200000)
+	nodes = p.Nodes()
+	expected := int64(100000*7/10 + 200000*3/10) // 130000
+	if nodes[0].LatencyUs != expected {
+		t.Errorf("expected %d, got %d", expected, nodes[0].LatencyUs)
+	}
+}
+
+func BenchmarkPoolRandom(b *testing.B) {
+	p := New(3)
+	p.Update(makeFakeProxies(100))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		p.Random()
+	}
+}
+
+func BenchmarkPoolP2C(b *testing.B) {
+	p := New(3)
+	proxies := makeFakeProxies(100)
+	p.Update(proxies)
+	for i, proxy := range proxies {
+		p.UpdateLatency(proxy.Name(), int64(i*10000))
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		p.P2C()
+	}
+}
