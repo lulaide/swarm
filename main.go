@@ -86,7 +86,10 @@ func main() {
 	disp := dispatcher.New(proxyPool)
 
 	// 启动 HTTP 代理服务
-	proxyServer, err := proxy.New(cfg.Listen, proxyPool)
+	if cfg.DialRace {
+		slog.Info("dial race 已启用")
+	}
+	proxyServer, err := proxy.New(cfg.Listen, proxyPool, cfg.DialRace)
 	if err != nil {
 		slog.Error("启动代理监听失败", "err", err)
 		os.Exit(1)

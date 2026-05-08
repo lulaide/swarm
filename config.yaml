@@ -1,5 +1,6 @@
 listen: ":7890"
 api: ":9090"
+dial_race: true
 
 subscribe:
   - url: "https://example.com/clash/sub"

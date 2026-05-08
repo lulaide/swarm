@@ -9,6 +9,7 @@ import (
 type Config struct {
 	Listen      string            `yaml:"listen"`
 	API         string            `yaml:"api"`
+	DialRace    bool              `yaml:"dial_race"`
 	Subscribe   []SubscribeConfig `yaml:"subscribe"`
 	HealthCheck HealthCheckConfig `yaml:"health_check"`
 }
