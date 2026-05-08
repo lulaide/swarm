@@ -1,0 +1,10 @@
+services:
+  swarm:
+    image: ghcr.io/lulaide/swarm:latest
+    container_name: swarm
+    restart: unless-stopped
+    ports:
+      - "7890:7890"
+      - "9090:9090"
+    volumes:
+      - ./config.yaml:/etc/swarm/config.yaml:ro

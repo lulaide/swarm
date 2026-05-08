@@ -6,6 +6,9 @@
 *.test
 *.out
 *.log
+swarm
+bench
+latency
 vendor/
 .idea/
 .vscode/

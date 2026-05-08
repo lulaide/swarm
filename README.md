@@ -20,6 +20,24 @@
 
 ## 快速开始
 
+### Docker（推荐）
+
+```bash
+# 编辑配置
+vim config.yaml
+
+# 启动
+docker run -d --name swarm \
+  -p 7890:7890 -p 9090:9090 \
+  -v $(pwd)/config.yaml:/etc/swarm/config.yaml:ro \
+  ghcr.io/lulaide/swarm:latest
+
+# 或使用 docker-compose
+docker compose up -d
+```
+
+### 源码编译
+
 ```bash
 # 编译
 go build -o swarm .
