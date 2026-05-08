@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -20,11 +21,19 @@ import (
 
 func main() {
 	configPath := flag.String("c", "config.yaml", "配置文件路径")
+	debug := flag.Bool("debug", false, "启用 debug 日志")
 	flag.Parse()
+
+	// 结构化日志
+	level := slog.LevelInfo
+	if *debug {
+		level = slog.LevelDebug
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "加载配置失败: %v\n", err)
+		slog.Error("加载配置失败", "err", err)
 		os.Exit(1)
 	}
 
@@ -43,7 +52,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	for _, sub := range subscribers {
 		if err := sub.Start(ctx); err != nil {
-			fmt.Fprintf(os.Stderr, "订阅 %s 初始化失败: %v\n", sub.Name(), err)
+			slog.Error("订阅初始化失败", "name", sub.Name(), "err", err)
 			os.Exit(1)
 		}
 	}
@@ -51,16 +60,16 @@ func main() {
 
 	allProxies := api.CollectProxies(subscribers)
 	if len(allProxies) == 0 {
-		fmt.Fprintln(os.Stderr, "没有可用的代理节点")
+		slog.Error("没有可用的代理节点")
 		os.Exit(1)
 	}
 	fmt.Printf("已解析 %d 个节点，正在测试连通性...\n", len(allProxies))
 
-	// 启动前连通性测试，只保留能通的节点
+	// 启动前连通性测试
 	hcTimeout := time.Duration(cfg.HealthCheck.Timeout) * time.Second
 	alive := pool.FilterAlive(allProxies, cfg.HealthCheck.URL, hcTimeout)
 	if len(alive) == 0 {
-		fmt.Fprintln(os.Stderr, "没有节点通过连通性测试")
+		slog.Error("没有节点通过连通性测试")
 		os.Exit(1)
 	}
 	fmt.Printf("连通性测试完成: %d/%d 个节点可用\n", len(alive), len(allProxies))
@@ -79,18 +88,18 @@ func main() {
 	// 启动 HTTP 代理服务
 	proxyServer, err := proxy.New(cfg.Listen, proxyPool)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "启动代理监听失败: %v\n", err)
+		slog.Error("启动代理监听失败", "err", err)
 		os.Exit(1)
 	}
 	defer proxyServer.Close()
-	fmt.Printf("代理监听: %s (HTTP Proxy)\n", proxyServer.Address())
+	slog.Info("代理监听", "addr", proxyServer.Address())
 
 	// 启动 API 服务
 	apiServer := api.New(proxyPool, disp, subscribers)
 	go func() {
-		fmt.Printf("API 监听: %s\n", cfg.API)
+		slog.Info("API 监听", "addr", cfg.API)
 		if err := http.ListenAndServe(cfg.API, apiServer); err != nil {
-			fmt.Fprintf(os.Stderr, "API 服务错误: %v\n", err)
+			slog.Error("API 服务错误", "err", err)
 		}
 	}()
 
@@ -98,7 +107,7 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
-	fmt.Println("\n正在关闭...")
+	slog.Info("正在关闭...")
 
 	for _, sub := range subscribers {
 		sub.Close()
