@@ -1,0 +1,13 @@
+listen: ":7890"
+api: ":9090"
+
+subscribe:
+  - url: "https://example.com/clash/sub"
+    interval: 3600
+    name: "main"
+
+health_check:
+  url: "https://www.gstatic.com/generate_204"
+  interval: 300
+  timeout: 5
+  max_failures: 3
