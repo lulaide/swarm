@@ -10,12 +10,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/metacubex/mihomo/listener/mixed"
-
 	"github.com/lulaide/swarm/api"
 	"github.com/lulaide/swarm/config"
 	"github.com/lulaide/swarm/dispatcher"
 	"github.com/lulaide/swarm/pool"
+	"github.com/lulaide/swarm/proxy"
 	"github.com/lulaide/swarm/subscribe"
 )
 
@@ -40,7 +39,7 @@ func main() {
 		subscribers = append(subscribers, sub)
 	}
 
-	// 拉取订阅并填充代理池
+	// 拉取订阅
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	for _, sub := range subscribers {
 		if err := sub.Start(ctx); err != nil {
@@ -50,32 +49,41 @@ func main() {
 	}
 	cancel()
 
-	proxies := api.CollectProxies(subscribers)
-	if len(proxies) == 0 {
+	allProxies := api.CollectProxies(subscribers)
+	if len(allProxies) == 0 {
 		fmt.Fprintln(os.Stderr, "没有可用的代理节点")
 		os.Exit(1)
 	}
-	proxyPool.Update(proxies)
-	fmt.Printf("已加载 %d 个代理节点\n", len(proxies))
+	fmt.Printf("已解析 %d 个节点，正在测试连通性...\n", len(allProxies))
 
-	// 启动健康检查
-	hcInterval := time.Duration(cfg.HealthCheck.Interval) * time.Second
+	// 启动前连通性测试，只保留能通的节点
 	hcTimeout := time.Duration(cfg.HealthCheck.Timeout) * time.Second
+	alive := pool.FilterAlive(allProxies, cfg.HealthCheck.URL, hcTimeout)
+	if len(alive) == 0 {
+		fmt.Fprintln(os.Stderr, "没有节点通过连通性测试")
+		os.Exit(1)
+	}
+	fmt.Printf("连通性测试完成: %d/%d 个节点可用\n", len(alive), len(allProxies))
+
+	proxyPool.Update(alive)
+
+	// 启动后台健康检查
+	hcInterval := time.Duration(cfg.HealthCheck.Interval) * time.Second
 	hc := pool.NewHealthChecker(proxyPool, cfg.HealthCheck.URL, hcInterval, hcTimeout)
 	hc.Start()
 	defer hc.Close()
 
-	// 创建调度器
+	// 创建调度器（用于统计）
 	disp := dispatcher.New(proxyPool)
 
-	// 启动 Mixed 监听 (HTTP + SOCKS5)
-	listener, err := mixed.New(cfg.Listen, disp)
+	// 启动 HTTP 代理服务
+	proxyServer, err := proxy.New(cfg.Listen, proxyPool)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "启动监听失败: %v\n", err)
+		fmt.Fprintf(os.Stderr, "启动代理监听失败: %v\n", err)
 		os.Exit(1)
 	}
-	defer listener.Close()
-	fmt.Printf("代理监听: %s (HTTP + SOCKS5)\n", listener.Address())
+	defer proxyServer.Close()
+	fmt.Printf("代理监听: %s (HTTP Proxy)\n", proxyServer.Address())
 
 	// 启动 API 服务
 	apiServer := api.New(proxyPool, disp, subscribers)
